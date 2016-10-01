@@ -1,7 +1,9 @@
 #include <iostream>
 
-#include <opencv2/opencv.hpp>
-#include <opencv2/core/core.hpp>
+
+#include <opencv2/core.hpp>
+#include <opencv2/imgproc.hpp>
+#include <opencv2/imgcodecs.hpp>
 
 
 #include "DataFormat/storage_manager.h"
@@ -12,7 +14,63 @@
 #include "LArUtil/DetectorProperties.h"
 
 
+int interp(float val, float min, float max, float start, float end) {
+  return ((val-min)/(max-min))*(end-start)+start;
+}
 
+void interp_rgb(float val,int& r,int& g,int& b) {
+
+  float v1,v2;
+
+  v1=0;
+  v2=0.33333;
+  
+  if (v1<=val and val<=v2) {
+    r = interp(val,v1,v2,22,0); 
+    g = interp(val,v1,v2,30,181);
+    b = interp(val,v1,v2,151,226);
+    return;
+  }
+
+  v1=0.33333;
+  v2=0.47;
+  if (v1<val and val<=v2) {
+    r=interp(val,v1,v2,0,76);
+    g=interp(val,v1,v2,181,140);
+    b=interp(val,v1,v2,226,43);
+    return;
+  }
+  
+  v1=0.47;
+  v2=0.645;
+  if (v1<val and val<=v2) {
+    r= interp(val,v1,v2,76,0);
+    g=interp(val,v1,v2,140,206);
+    b=interp(val,v1,v2,43,24);
+    return;
+  }
+
+  v1=0.645;
+  v2=0.791;
+  if (v1<val and val<=v2) {
+    r=interp(val,v1,v2,0,254);
+    g=interp(val,v1,v2,206,209);
+    b=interp(val,v1,v2,24,65);
+    return;
+  }
+    
+
+  v1=0.791;
+  v2=1.0;
+  if (v1<val and val<=v2) {
+    r = interp(val,v1,v2,254,255);
+    g = interp(val,v1,v2,209,0);
+    b = interp(val,v1,v2,65,0);
+    return;
+  }
+
+  
+}
 void set_dimension(std::vector<unsigned>& dimension,
 		   unsigned int dim,
 		   unsigned int plane) {
@@ -31,22 +89,18 @@ void init_data_holder(std::vector<std::vector<float> >& data,
 
   for (size_t i = 0; i < x_dimensions.size(); i ++ ) 
     data[i].resize(x_dimensions[i] * y_dimensions[i]);
-  
-
 }
 
 
 int main(int arc, char** argv) {
-  std::cout << "start\n";
-  larlite::storage_manager storage{};
+  larlite::storage_manager storage;
+  storage.set_verbosity(larlite::msg::kMSG_TYPE_MAX);
   storage.set_io_mode(larlite::storage_manager::kREAD);
   storage.add_in_filename("/Users/vgenty/Desktop/pi0_files/selected/larlite_wire_filtered.root");
   storage.open();
   storage.go_to(0);
   auto ev_wire = (larlite::event_wire*)(storage.get_data<larlite::event_wire>("caldata"));
   if(!ev_wire) throw std::exception();
-  std::cout << "Got event wire pointer : " << ev_wire << "\n";
-  std::cout << "Getting geometry service...\n";
   auto geoservice = larutil::Geometry::GetME();
   auto detprop = larutil::DetectorProperties::GetME();
 
@@ -65,146 +119,37 @@ int main(int arc, char** argv) {
     unsigned int plane_ = geoservice->ChannelToPlane(ch_);
     int offset = detWire_ * _y_dimensions[plane_];
 
-    for (const auto & iROI : wire.SignalROI().get_ranges()) {
-      const int FirstTick = iROI.begin_index();
+    for (const auto & roi : wire.SignalROI().get_ranges()) {
+      const int start_tick = roi.begin_index();
       size_t i = 0;
-      for (float ADC : iROI)
-        { _plane_data[plane_][offset + FirstTick + i] = ADC; ++i; }
-      }
+      for (float adc : roi)
+        { _plane_data[plane_][offset + start_tick + i] = adc; ++i; }
     }
-  
+  }
 
-  for(short i=0;i<3;++i)
-    std::cout << i << "," << _plane_data[i].size() << "\n";;
-  std::cout << _x_dimensions.size() << "," << _y_dimensions.size() << "\n";
-  ::cv::Mat mat((_x_dimensions[2],_y_dimensions[2]));
-  
+  ::cv::Mat mat(_x_dimensions[2],_y_dimensions[2],CV_8UC3);
+
+  float max=25.0;
+  float min=0.0;
+  int r,g,b;
+  for (int i = 0; i < mat.rows; ++i) {
+    for (int j = 0; j < mat.cols; ++j) {
+      float p=_plane_data[2][i*mat.cols+j];
+      if (p>max) p = max;
+      if (p<min) p = min;
+      p/=max;
+      auto &intensity = mat.at<cv::Vec3b>(i, j);
+      interp_rgb(p,r,g,b);
+      intensity.val[0] = b;
+      intensity.val[1] = g;
+      intensity.val[2] = r;
+    }
+  }
+
+  cv::transpose(mat,mat);
+  ::cv::imwrite("aho.png",mat);
+		
   storage.close();
-  std::cout << "end\n";  
   
-  //   ::larlite::event_PiZeroROI* ev_roi = nullptr;
-  //   if ( _use_roi ) {
-
-  //     ev_roi = storage->get_data<event_PiZeroROI>( "mcroi" );
-  //     if(ev_roi->size() == 0) throw DataFormatException("Could not locate ROI data product And you have UseROI: True!");
-
-  //     auto wr_v = (*ev_roi)[0].GetWireROI();
-  //     auto tr_v = (*ev_roi)[0].GetTimeROI();
-      
-  //     for(uint k=0; k < nplanes; ++k)
-  // 	{ wire_range_v[k] = wr_v[k]; tick_range_v[k] = tr_v[k]; }
-
-  //   } else {
-    
-  //     for(auto const& wire_data : *ev_wire) {
-      
-  // 	auto const& wid = geom->ChannelToWireID(wire_data.Channel());
-      
-  // 	auto& wire_range = wire_range_v[wid.Plane];
-  // 	if(wire_range.first  > wid.Wire) wire_range.first  = wid.Wire;
-  // 	if(wire_range.second < wid.Wire) wire_range.second = wid.Wire;
-      
-  // 	auto& tick_range = tick_range_v[wid.Plane];
-      
-  // 	auto const& roi_v = wire_data.SignalROI();
-      
-  // 	for(auto const& roi : roi_v.get_ranges()) {	
-  // 	  size_t start_tick = roi.begin_index();
-  // 	  size_t last_tick = start_tick + roi.size() - 1;
-  // 	  if(tick_range.first  > start_tick) tick_range.first  = start_tick;
-  // 	  if(tick_range.second < last_tick)  tick_range.second = last_tick;
-  // 	}
-  //     }
-  //   }
-    
-  //   for(size_t plane=0; plane<nplanes; ++plane) {
-  //     auto const& wire_range = wire_range_v[plane];
-  //     auto const& tick_range = tick_range_v[plane];
-  //     size_t nticks = tick_range.second - tick_range.first + 2;
-  //     size_t nwires = wire_range.second - wire_range.first + 2;
-
-
-  //     ::larocv::ImageMeta meta((double)nwires,(double)nticks,nwires,nticks,wire_range.first,tick_range.first,plane);
-  //     if ( _use_roi ) {
-  // 	const auto& vtx = (*ev_roi)[0].GetVertex()[plane];
-  // 	meta.setvtx(vtx.first,vtx.second);
-  //     }
-      
-  //     if ( nwires >= 1e10 || nticks >= 1e10 )
-  // 	_img_mgr.push_back(cv::Mat(),::larocv::ImageMeta());
-  //     else
-  // 	_img_mgr.push_back(::cv::Mat(nwires, nticks, CV_8UC1, cvScalar(0.)),meta);
-  //   }
-
-  //   for(auto const& wire_data : *ev_wire) {
-      
-  //     auto const& wid = geom->ChannelToWireID(wire_data.Channel());
-
-  //     auto& mat = _img_mgr.img_at(wid.Plane);
-      
-  //     auto const& roi_v = wire_data.SignalROI();
-
-  //     auto const& wire_range = wire_range_v[wid.Plane];
-  //     auto const& tick_range = tick_range_v[wid.Plane];
-
-  //     for(auto const& roi : roi_v.get_ranges()) {
-  // 	size_t start_tick = roi.begin_index();
-  // 	for(size_t adc_index=0; adc_index < roi.size(); ++adc_index) {
-  // 	  size_t x = wid.Wire - wire_range.first;
-  // 	  size_t y = start_tick + adc_index - tick_range.first;
-  // 	  double q = roi[adc_index] / _charge_to_gray_scale;
-  // 	  q += (double)(mat.at<unsigned char>(x,y));
-  // 	  if( q <  0) q = 0.;
-  // 	  if( q >255) q = 255;
-  // 	  mat.at<unsigned char>(x,y) = (unsigned char)((int)q);
-  // 	}
-  //     }
-  //   }
-
-  //   if ( _pool_time_tick > 1 ) {
-
-  //     for(size_t plane=0; plane<nplanes; ++plane) {
-
-  // 	auto& img  = _img_mgr.img_at(plane);
-  // 	auto& meta = _img_mgr.meta_at(plane);
-
-  // 	::cv::Mat pooled(img.rows, img.cols/_pool_time_tick+1, CV_8UC1, cvScalar(0.));
-      
-  // 	for(int row = 0; row < img.rows; ++row) {
-
-  // 	  uchar* p = img.ptr(row);
-	  
-  // 	  for(int col = 0; col < img.cols; ++col) {
-
-  // 	    int pp = *p++;
-	  
-  // 	    auto& ch = pooled.at<uchar>(row,col/_pool_time_tick);
-
-  // 	    int res  = pp + (int) ch;
-  // 	    if (res > 255) res = 255;
-  // 	    ch = (uchar) res;
-	  
-  // 	  }
-  // 	}
-
-  // 	//old parameters
-  // 	auto const& wire_range = wire_range_v[plane];
-  // 	auto const& tick_range = tick_range_v[plane];
-
-  // 	img  = pooled;
-  // 	meta = ::larocv::ImageMeta((double)pooled.rows,
-  // 				  (double)pooled.cols*_pool_time_tick,
-  // 				  pooled.rows,
-  // 				  pooled.cols,
-  // 				  wire_range.first,
-  // 				  tick_range.first,
-  // 				  plane);
-  // 	if ( _use_roi ) {
-  // 	  const auto& vtx = (*ev_roi)[0].GetVertex()[plane];
-  // 	  meta.setvtx(vtx.first,vtx.second);
-  // 	}
-
-  //     }
-  //   }
   return 0;
 }
