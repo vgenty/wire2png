@@ -1,0 +1,4 @@
+*.png
+*.o
+wire2png
+.DS_Store

@@ -1,5 +1,5 @@
 CXX=clang++
-CXXFLAGS += -g#-O3 
+CXXFLAGS += -O3 #-g
 
 #############INCLUDES
 BASIC_ROOTINC=$(shell root-config --cflags)
