@@ -36,11 +36,19 @@ int main(int argc, char** argv) {
   int evt_start = atoi(argv[2]);
   int evt_end = argc == 4 ? atoi(argv[3]) : evt_end =evt_start+1;
   std::cout << argc << " ," << evt_start << " , " << evt_end << "\n";
+
   larlite::storage_manager storage;
   storage.set_verbosity(larlite::msg::kMSG_TYPE_MAX);
   storage.set_io_mode(larlite::storage_manager::kREAD);
   storage.add_in_filename(larlite_file);
   storage.open();
+
+  if ( evt_start == -1) {
+    evt_start=0;
+    evt_end  =storage.get_entries();
+  }
+  
+
   storage.go_to(evt_start);
 
   auto geoservice = larutil::Geometry::GetME();
@@ -69,12 +77,13 @@ int main(int argc, char** argv) {
     std::cout << "Writing event : " << evt << "\n";
     mat.setTo(cv::Scalar(0, 0, 0)); 
     std::fill(_plane_data.begin(), _plane_data.end(), 0);
- 
-    
-    ss << std::setfill('0') << std::setw(4) << evt << ".png";
-    auto ev_wire = (larlite::event_wire*)(storage.get_data<larlite::event_wire>("caldata"));
-    if(!ev_wire) throw std::exception();
 
+    auto ev_wire = (larlite::event_wire*)(storage.get_data<larlite::event_wire>("caldata"));
+
+    //ss << std::setfill('0') << std::setw(4) << evt << "_" << ev_wire->run() << "_" << ev_wire->subrun() << "_" << ev_wire->event_id() << ".png";
+    ss << ev_wire->run() << "_" << ev_wire->subrun() << "_" << ev_wire->event_id() << ".png";
+
+    if(!ev_wire) throw std::exception();
   
     for (auto const& wire : *ev_wire) {
       unsigned ch_      = wire.Channel();
