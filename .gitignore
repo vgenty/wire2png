@@ -1,4 +1,8 @@
 *.png
 *.o
 wire2png
+digit2png
 .DS_Store
+*.txt
+*.tar
+*.py
